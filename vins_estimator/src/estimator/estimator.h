@@ -109,7 +109,7 @@ class Estimator
     SolverFlag solver_flag;
     MarginalizationFlag  marginalization_flag;
     Vector3d g;
-
+    // 相机到IMU变换矩阵
     Matrix3d ric[2];
     Vector3d tic[2];
 
@@ -131,7 +131,7 @@ class Estimator
     vector<Vector3d> linear_acceleration_buf[(WINDOW_SIZE + 1)];
     vector<Vector3d> angular_velocity_buf[(WINDOW_SIZE + 1)];
 
-    int frame_count;
+    int frame_count;  //^ Sliding window中视觉帧数量
     int sum_of_outlier, sum_of_back, sum_of_front, sum_of_invalid;
     int inputImageCnt;
 

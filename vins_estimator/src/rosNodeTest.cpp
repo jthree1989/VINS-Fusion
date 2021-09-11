@@ -82,7 +82,7 @@ void sync_process()
             {
                 double time0 = img0_buf.front()->header.stamp.toSec();
                 double time1 = img1_buf.front()->header.stamp.toSec();
-                // 0.003s sync tolerance
+                // 0.003s sync tolerance(3ms)
                 if(time0 < time1 - 0.003)
                 {
                     img0_buf.pop();
@@ -150,6 +150,7 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
 
 void feature_callback(const sensor_msgs::PointCloudConstPtr &feature_msg)
 {
+    //^ x, y, z, u, v, v_x, v_y 
     map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame;
     for (unsigned int i = 0; i < feature_msg->points.size(); i++)
     {
@@ -250,9 +251,11 @@ int main(int argc, char **argv)
     registerPub(n);
 
     ros::Subscriber sub_imu = n.subscribe(IMU_TOPIC, 2000, imu_callback, ros::TransportHints().tcpNoDelay());
+    // 订阅前端特征提取topic，适配前段各种前端的接口
     ros::Subscriber sub_feature = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
     ros::Subscriber sub_img0 = n.subscribe(IMAGE0_TOPIC, 100, img0_callback);
     ros::Subscriber sub_img1 = n.subscribe(IMAGE1_TOPIC, 100, img1_callback);
+    // 订阅estimator重启
     ros::Subscriber sub_restart = n.subscribe("/vins_restart", 100, restart_callback);
     ros::Subscriber sub_imu_switch = n.subscribe("/vins_imu_switch", 100, imu_switch_callback);
     ros::Subscriber sub_cam_switch = n.subscribe("/vins_cam_switch", 100, cam_switch_callback);

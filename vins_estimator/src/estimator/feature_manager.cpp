@@ -48,8 +48,12 @@ int FeatureManager::getFeatureCount()
     return cnt;
 }
 
-
-bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
+//^ frame_count: 当前图像帧在sliding window中的id
+//^ image: 当前图像中的特征点(map<faeture_id, vector<pair<camera_id, vector<x, y, z, u, v, vel_x, vel_y>>>>)
+//^ td : time_in_IMU = time_in_Image + td 
+bool FeatureManager::addFeatureCheckParallax(int frame_count, 
+                                             const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, 
+                                             double td)
 {
     ROS_DEBUG("input feature: %d", (int)image.size());
     ROS_DEBUG("num of feature: %d", getFeatureCount());
@@ -59,10 +63,18 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
     last_average_parallax = 0;
     new_feature_num = 0;
     long_track_num = 0;
+    //^ 按feature id遍历每个feature
     for (auto &id_pts : image)
     {
+        //^ id_pts.first : feature id
+        //^ id_pts.second : 特征点vector
+        //^ id_pts.second[0].first : vector中第一个特征点的camera id
+        //^ id_pts.second[0].second : vector中第一个特征点的信息
+        //TODO: better to check if id_pts.second is empty
         FeaturePerFrame f_per_fra(id_pts.second[0].second, td);
+        //^ 确保vector中第一个点的camera id是0（左目）
         assert(id_pts.second[0].first == 0);
+        //^ 如果左右目同时观测到，添加右目特征点信息到FeaturePerFrame
         if(id_pts.second.size() == 2)
         {
             f_per_fra.rightObservation(id_pts.second[1].second);
