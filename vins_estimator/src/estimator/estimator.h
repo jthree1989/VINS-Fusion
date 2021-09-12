@@ -125,7 +125,7 @@ class Estimator
     double Headers[(WINDOW_SIZE + 1)];
 
     IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];
-    Vector3d acc_0, gyr_0;
+    Vector3d acc_0, gyr_0;  //^ 预积分起点数据
 
     vector<double> dt_buf[(WINDOW_SIZE + 1)];
     vector<Vector3d> linear_acceleration_buf[(WINDOW_SIZE + 1)];

@@ -403,6 +403,7 @@ void Estimator::processImage(
   if (ESTIMATE_EXTRINSIC == 2) {
     ROS_INFO("calibrating extrinsic param, rotation movement is needed");
     if (frame_count != 0) {
+      //^ feature database中找到当前帧和上一帧共视的feature的对应归一化坐标
       vector<pair<Vector3d, Vector3d>> corres =
           f_manager.getCorresponding(frame_count - 1, frame_count);
       Matrix3d calib_ric;
@@ -419,6 +420,7 @@ void Estimator::processImage(
 
   if (solver_flag == INITIAL) {
     // monocular + IMU initilization
+    //^ 单目VIO初始化
     if (!STEREO && USE_IMU) {
       if (frame_count == WINDOW_SIZE) {
         bool result = false;
@@ -438,6 +440,7 @@ void Estimator::processImage(
     }
 
     // stereo + IMU initilization
+    //^ 双目VIO初始化
     if (STEREO && USE_IMU) {
       f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
       f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
