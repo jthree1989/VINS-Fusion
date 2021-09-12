@@ -102,11 +102,11 @@ class FeatureManager
     void removeBack();
     void removeFront(int frame_count);
     void removeOutlier(set<int> &outlierIndex);
-    list<FeaturePerId> feature;
-    int last_track_num;
+    list<FeaturePerId> feature; //^ feature database，存储每个feature(id)的所有观测信息
+    int last_track_num;         //^ 当前帧再次观测到database中的feature个数
     double last_average_parallax;
-    int new_feature_num;
-    int long_track_num;
+    int new_feature_num;        //^ 当前帧新观测到的feature个数
+    int long_track_num;         //^ database中被多次观测（>4）到的feature个数
 
   private:
     double compensatedParallax2(const FeaturePerId &it_per_id, int frame_count);

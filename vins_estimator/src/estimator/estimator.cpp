@@ -281,6 +281,7 @@ void Estimator::processMeasurements() {
         }
       }
       mProcess.lock();
+      //^ 处理图像观测的特征点数据
       processImage(feature.second, feature.first);
       prevTime = curTime;
 
@@ -372,12 +373,14 @@ void Estimator::processIMU(double t,
 }
 
 void Estimator::processImage(
-    const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image,  //^ 当前图像中的特征点(map<faeture_id, vector<pair<camera_id, vector<x, y, z, u, v, vel_x, vel_y>>>>)
-    const double header                                                     // 图像时间戳
+    //^ 当前图像中的特征点(map<faeture_id, vector<pair<camera_id, vector<x, y, z, u, v, vel_x, vel_y>>>>)
+    const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image,  
+    const double header // 图像时间戳
 ) 
 {
   ROS_DEBUG("new image coming ------------------------------------------");
   ROS_DEBUG("Adding feature points %lu", image.size());
+  //^ 通过计算视差，判断当前帧是否为keyframe
   if (f_manager.addFeatureCheckParallax(frame_count, image, td)) {
     marginalization_flag = MARGIN_OLD;
     // printf("keyframe\n");

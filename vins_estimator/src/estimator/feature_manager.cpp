@@ -80,45 +80,54 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count,
             f_per_fra.rightObservation(id_pts.second[1].second);
             assert(id_pts.second[1].first == 1);
         }
-
+        //^ 按id查找当前feature是否在feature database里
         int feature_id = id_pts.first;
-        auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
-                          {
-            return it.feature_id == feature_id;
+        auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it){
+                            return it.feature_id == feature_id;
                           });
 
         if (it == feature.end())
         {
+            //^ 新的feature，构造FeaturePerId，
+            //^ 其中frame_count : start frame即第一次观测到该feature的frame id
             feature.push_back(FeaturePerId(feature_id, frame_count));
             feature.back().feature_per_frame.push_back(f_per_fra);
-            new_feature_num++;
+            new_feature_num++; // 新观测feature个数+1
         }
         else if (it->feature_id == feature_id)
         {
-            it->feature_per_frame.push_back(f_per_fra);
-            last_track_num++;
+            //^ 已在feature database中的feature，添加新的观测信息
+            it->feature_per_frame.push_back(f_per_fra); 
+            last_track_num++; // 当前帧再次观测到database中的feature个数+1
             if( it-> feature_per_frame.size() >= 4)
-                long_track_num++;
+                long_track_num++; // database中被多次观测（>4）到的feature个数+1
         }
     }
 
     //if (frame_count < 2 || last_track_num < 20)
     //if (frame_count < 2 || last_track_num < 20 || new_feature_num > 0.5 * last_track_num)
-    if (frame_count < 2 || last_track_num < 20 || long_track_num < 40 || new_feature_num > 0.5 * last_track_num)
+    //^ 判断当前帧是否为keyframe， 若为keyframe，返回true
+    if (frame_count < 2                             //^ 当前帧为sliding window中的前两帧 
+        || last_track_num < 20                      //^ 当前帧再次观测（track）到database中的feature个数小于20
+        || long_track_num < 40                      //^ database中被多次观测（>4）到的feature个数小于40
+        || new_feature_num > 0.5 * last_track_num)  //^ 当前帧新观测到的feature个数大于track到的feature个数的一半
         return true;
-
+    //^ 不是keyframe
+    //^ 
     for (auto &it_per_id : feature)
     {
-        if (it_per_id.start_frame <= frame_count - 2 &&
-            it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)
+        //^ 计算当前所有feature在倒数第二一帧和倒数第三帧之间的视差和
+        if (it_per_id.start_frame <= frame_count - 2 && //^ 第一次观测到帧距当前帧大于2
+            it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1) //^ 最后观测的帧大于等于上一帧
         {
             parallax_sum += compensatedParallax2(it_per_id, frame_count);
             parallax_num++;
         }
     }
-
+    
     if (parallax_num == 0)
-    {
+    {   
+        //^ 不存在满足视差计算条件，keyframe
         return true;
     }
     else
@@ -126,6 +135,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count,
         ROS_DEBUG("parallax_sum: %lf, parallax_num: %d", parallax_sum, parallax_num);
         ROS_DEBUG("current parallax: %lf", parallax_sum / parallax_num * FOCAL_LENGTH);
         last_average_parallax = parallax_sum / parallax_num * FOCAL_LENGTH;
+        //^ 平均视差大于阈值，keyframe
         return parallax_sum / parallax_num >= MIN_PARALLAX;
     }
 }
@@ -549,8 +559,8 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     double ans = 0;
     Vector3d p_j = frame_j.point;
 
-    double u_j = p_j(0);
-    double v_j = p_j(1);
+    double u_j = p_j(0) / p_j(2);
+    double v_j = p_j(1) / p_j(2);
 
     Vector3d p_i = frame_i.point;
     Vector3d p_i_comp;
@@ -570,6 +580,6 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     double du_comp = u_i_comp - u_j, dv_comp = v_i_comp - v_j;
 
     ans = max(ans, sqrt(min(du * du + dv * dv, du_comp * du_comp + dv_comp * dv_comp)));
-
+    ROS_INFO("ans: %lf", ans);
     return ans;
 }
