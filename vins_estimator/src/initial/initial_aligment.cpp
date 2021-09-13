@@ -20,6 +20,10 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     b.setZero();
     map<double, ImageFrame>::iterator frame_i;
     map<double, ImageFrame>::iterator frame_j;
+    //^ See Vins-Mono paper formula(15), construct a linear equation A * delta_bg = b
+    //! A = [J01^T, ... , Jij^T, ... , Jn-1n^T]^T
+    //! b = [b01^T, ... , bij^T, ... , Bn-1n^T]^T
+    //^ Using A^T * A * delta_bg = A^T * b to solve this equation
     for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end(); frame_i++)
     {
         frame_j = next(frame_i);
@@ -27,15 +31,24 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
         tmp_A.setZero();
         VectorXd tmp_b(3);
         tmp_b.setZero();
+        //^ Rcicj = (Rwci)^T * Rwcj
         Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);
+        //^ tmp_A is Jacobian of preintergration rotation part with respect to gyroscope bias between (i, j) frame
         tmp_A = frame_j->second.pre_integration->jacobian.template block<3, 3>(O_R, O_BG);
+        //^ tem_p is difference between preintegration constrain and vision constrain between (i, j) frame
+        // TODO I think derectly using vec() of quaternion seems to be not appropriate
+        // TODO Please make sure frame_j->second.pre_integration->delta_q.inverse() * q_ij has a (w == 1)
+        //^ Haha, have tested at euroc datatset, w is about 0.999992, no problem in this situation, but better to check it
+        ROS_WARN("(Check frame_j->second.pre_integration->delta_q.inverse() * q_ij).w(): %lf", (frame_j->second.pre_integration->delta_q.inverse() * q_ij).w());   
         tmp_b = 2 * (frame_j->second.pre_integration->delta_q.inverse() * q_ij).vec();
         A += tmp_A.transpose() * tmp_A;
         b += tmp_A.transpose() * tmp_b;
     }
+
     delta_bg = A.ldlt().solve(b);
     ROS_WARN_STREAM("gyroscope bias initial calibration " << delta_bg.transpose());
 
+    //^ 更新sliding window每一帧的bg，并重新预积分
     for (int i = 0; i <= WINDOW_SIZE; i++)
         Bgs[i] += delta_bg;
 

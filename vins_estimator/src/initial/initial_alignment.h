@@ -29,10 +29,10 @@ class ImageFrame
         {
             points = _points;
         };
-        map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>> > > points;
-        double t;
-        Matrix3d R;
-        Vector3d T;
+        map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>> > > points;  //^ features
+        double t;                                                           //^ 时间戳
+        Matrix3d R;                                                         //^ Rwbi
+        Vector3d T;                                                         //^ Pwbi
         IntegrationBase *pre_integration;
         bool is_key_frame;
 };

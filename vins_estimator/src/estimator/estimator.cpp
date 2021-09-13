@@ -349,6 +349,7 @@ void Estimator::processIMU(double t,
     pre_integrations[frame_count] =
         new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
   }
+  //^ 不是第一个视觉帧，进行IMU propagation 和 preintegration
   if (frame_count != 0) {
     pre_integrations[frame_count]->push_back(dt, linear_acceleration,
                                              angular_velocity);
@@ -418,7 +419,7 @@ void Estimator::processImage(
     }
   }
 
-  if (solver_flag == INITIAL) {
+  if (solver_flag == INITIAL) { //^ 初始化流程
     // monocular + IMU initilization
     //^ 单目VIO初始化
     if (!STEREO && USE_IMU) {
@@ -442,21 +443,28 @@ void Estimator::processImage(
     // stereo + IMU initilization
     //^ 双目VIO初始化
     if (STEREO && USE_IMU) {
+      //^ frame_count == 0, 跳过该函数到triangulate
       f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
+      //^ 通过当前IMU位姿，三角化feature的3d point, 并将左目深度设置为feature depth
       f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
       if (frame_count == WINDOW_SIZE) {
+        //^ sliding window图像帧数量满足，开始初始化  
         map<double, ImageFrame>::iterator frame_it;
         int i = 0;
+        //^ 给sliding window中所有图像帧设定之前的PnP出的世界坐标系位姿Twbi
         for (frame_it = all_image_frame.begin();
              frame_it != all_image_frame.end(); frame_it++) {
           frame_it->second.R = Rs[i];
           frame_it->second.T = Ps[i];
           i++;
         }
+        //^ 优化IMU的gyro bias
         solveGyroscopeBias(all_image_frame, Bgs);
+        //^ 使用优化过的gyro bias重新预计分
         for (int i = 0; i <= WINDOW_SIZE; i++) {
           pre_integrations[i]->repropagate(Vector3d::Zero(), Bgs[i]);
         }
+        //^ 优化velocity, scale, gravity vector
         optimization();
         updateLatestStates();
         solver_flag = NON_LINEAR;
@@ -466,6 +474,7 @@ void Estimator::processImage(
     }
 
     // stereo only initilization
+    //^ 双目初始化
     if (STEREO && !USE_IMU) {
       f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
       f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
@@ -490,7 +499,7 @@ void Estimator::processImage(
       Bgs[frame_count] = Bgs[prev_frame];
     }
 
-  } else {
+  } else { //^ 初始化完成，VIO流程
     TicToc t_solve;
     if (!USE_IMU) f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
     f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
