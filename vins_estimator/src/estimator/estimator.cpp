@@ -418,7 +418,7 @@ void Estimator::processImage(
     }
   }
 
-  if (solver_flag == INITIAL) {
+  if (solver_flag == INITIAL) { //^ 初始化流程
     // monocular + IMU initilization
     //^ 单目VIO初始化
     if (!STEREO && USE_IMU) {
@@ -442,7 +442,9 @@ void Estimator::processImage(
     // stereo + IMU initilization
     //^ 双目VIO初始化
     if (STEREO && USE_IMU) {
+      //^ frame_count == 0, 跳过
       f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
+      //^ 三角化feature的3d point, 并将左目深度设置为feature depth
       f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
       if (frame_count == WINDOW_SIZE) {
         map<double, ImageFrame>::iterator frame_it;
@@ -490,7 +492,7 @@ void Estimator::processImage(
       Bgs[frame_count] = Bgs[prev_frame];
     }
 
-  } else {
+  } else { //^ 初始化完成，VIO流程
     TicToc t_solve;
     if (!USE_IMU) f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
     f_manager.triangulate(frame_count, Ps, Rs, tic, ric);

@@ -220,6 +220,11 @@ VectorXd FeatureManager::getDepthVector()
 void FeatureManager::triangulatePoint(Eigen::Matrix<double, 3, 4> &Pose0, Eigen::Matrix<double, 3, 4> &Pose1,
                         Eigen::Vector2d &point0, Eigen::Vector2d &point1, Eigen::Vector3d &point_3d)
 {
+    //^ 利用Pose0, Pose1, point0, point1构建线性方程如下, solve p_3d：
+    //^ point0(0) = Pose0.row(0) * p_3d / Pose0.row(2) * p_3d
+    //^ point0(1) = Pose0.row(1) * p_3d / Pose0.row(2) * p_3d
+    //^ point1(0) = Pose1.row(0) * p_3d / Pose1.row(2) * p_3d
+    //^ point1(1) = Pose1.row(1) * p_3d / Pose1.row(2) * p_3d
     Eigen::Matrix4d design_matrix = Eigen::Matrix4d::Zero();
     design_matrix.row(0) = point0[0] * Pose0.row(2) - Pose0.row(0);
     design_matrix.row(1) = point0[1] * Pose0.row(2) - Pose0.row(1);
@@ -325,24 +330,27 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
 {
     for (auto &it_per_id : feature)
     {
+        // feature已经估计出depth
         if (it_per_id.estimated_depth > 0)
             continue;
-
         if(STEREO && it_per_id.feature_per_frame[0].is_stereo)
         {
+            //^ 双目观测到特征点，进行双目三角化
             int imu_i = it_per_id.start_frame;
+            //^ 计算第一次观测到feature时，左目在世界坐标系下的位置
             Eigen::Matrix<double, 3, 4> leftPose;
-            Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];
-            Eigen::Matrix3d R0 = Rs[imu_i] * ric[0];
+            Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0]; // twc0
+            Eigen::Matrix3d R0 = Rs[imu_i] * ric[0];             // Rwc0
             leftPose.leftCols<3>() = R0.transpose();
-            leftPose.rightCols<1>() = -R0.transpose() * t0;
+            leftPose.rightCols<1>() = -R0.transpose() * t0;      // leftpose = Tc0w
             //cout << "left pose " << leftPose << endl;
 
+            //^ 计算第一次观测到feature时，右目在世界坐标系下的位置
             Eigen::Matrix<double, 3, 4> rightPose;
-            Eigen::Vector3d t1 = Ps[imu_i] + Rs[imu_i] * tic[1];
-            Eigen::Matrix3d R1 = Rs[imu_i] * ric[1];
+            Eigen::Vector3d t1 = Ps[imu_i] + Rs[imu_i] * tic[1];  // twc1
+            Eigen::Matrix3d R1 = Rs[imu_i] * ric[1];              // Rwc1
             rightPose.leftCols<3>() = R1.transpose();
-            rightPose.rightCols<1>() = -R1.transpose() * t1;
+            rightPose.rightCols<1>() = -R1.transpose() * t1;      // rightPose = Tc1w
             //cout << "right pose " << rightPose << endl;
 
             Eigen::Vector2d point0, point1;
@@ -351,9 +359,9 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
             point1 = it_per_id.feature_per_frame[0].pointRight.head(2);
             //cout << "point0 " << point0.transpose() << endl;
             //cout << "point1 " << point1.transpose() << endl;
-
+            //^ 三角化世界坐标系下的3d point位置
             triangulatePoint(leftPose, rightPose, point0, point1, point3d);
-            Eigen::Vector3d localPoint;
+            Eigen::Vector3d localPoint; //^ 左目下的3d位置
             localPoint = leftPose.leftCols<3>() * point3d + leftPose.rightCols<1>();
             double depth = localPoint.z();
             if (depth > 0)
@@ -369,6 +377,7 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
         }
         else if(it_per_id.feature_per_frame.size() > 1)
         {
+            //^ 单目多次观测，三角化
             int imu_i = it_per_id.start_frame;
             Eigen::Matrix<double, 3, 4> leftPose;
             Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];
@@ -580,6 +589,5 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     double du_comp = u_i_comp - u_j, dv_comp = v_i_comp - v_j;
 
     ans = max(ans, sqrt(min(du * du + dv * dv, du_comp * du_comp + dv_comp * dv_comp)));
-    ROS_INFO("ans: %lf", ans);
     return ans;
 }
