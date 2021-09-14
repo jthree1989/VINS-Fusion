@@ -115,7 +115,7 @@ class Estimator
 
     Vector3d        Ps[(WINDOW_SIZE + 1)];    //^ 世界坐标系下IMU位置 Pwi
     Vector3d        Vs[(WINDOW_SIZE + 1)];    //^ 世界坐标系下IMU速度 Vwi
-    Matrix3d        Rs[(WINDOW_SIZE + 1)];    //^ 世界坐标系下IMU旋转 Rwi
+    Matrix3d        Rs[(WINDOW_SIZE + 1)];    //^ 世界坐标系下IMU旋转 Rwb
     Vector3d        Bas[(WINDOW_SIZE + 1)];
     Vector3d        Bgs[(WINDOW_SIZE + 1)];
     double td;
