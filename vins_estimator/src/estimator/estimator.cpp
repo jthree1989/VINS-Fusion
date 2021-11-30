@@ -701,12 +701,19 @@ bool Estimator::visualInitialAlign() {
       Vs[kv] = frame_i->second.R * x.segment<3>(kv * 3);
     }
   }
-
+  //^ 实现论文V_4) Completing Initialization：
+  //^ get the rotation (q^w)_c0 between the world frame 
+  //^ and the camera frame c0 by rotating the gravity to the z-axis.
+  
+  //^ R0 is rotation matrix(R_GW) make current g^W to "global gravity g^G -- (0, 0, 1) direction"
   Matrix3d R0 = Utility::g2R(g);
+  //^ below is try to align gravity in coordiante Rwb0 to "global gravity (0, 0, 1) direction"
+  //^ g^G = R_GW * R_W0 * g^0
   double yaw = Utility::R2ypr(R0 * Rs[0]).x();
   R0 = Utility::ypr2R(Eigen::Vector3d{-yaw, 0, 0}) * R0;
   g = R0 * g;
   // Matrix3d rot_diff = R0 * Rs[0].transpose();
+  //^ Convert all the P/R/Q in the b0 to G
   Matrix3d rot_diff = R0;
   for (int i = 0; i <= frame_count; i++) {
     Ps[i] = rot_diff * Ps[i];
