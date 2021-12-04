@@ -65,11 +65,14 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
             pre_integration->repropagate(Bai, Bgi);
         }
 #endif
-
+        //^ 计算ij之间的预积分观测
         Eigen::Map<Eigen::Matrix<double, 15, 1>> residual(residuals);
         residual = pre_integration->evaluate(Pi, Qi, Vi, Bai, Bgi,
                                             Pj, Qj, Vj, Baj, Bgj);
-
+        //^ 协方差矩阵转信息矩阵，LLT分解加权 
+        //^ see https://blog.csdn.net/weixin_40072161/article/details/113091217
+        //^ e = (r^T)(P^-1)r = (r^T)(LL^T)r = (L^Tr)^T(L^Tr) 
+        //^ r' = L^Tr
         Eigen::Matrix<double, 15, 15> sqrt_info = Eigen::LLT<Eigen::Matrix<double, 15, 15>>(pre_integration->covariance.inverse()).matrixL().transpose();
         //sqrt_info.setIdentity();
         residual = sqrt_info * residual;

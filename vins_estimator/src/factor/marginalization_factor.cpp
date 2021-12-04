@@ -335,15 +335,19 @@ std::vector<double *> MarginalizationInfo::getParameterBlocks(std::unordered_map
 MarginalizationFactor::MarginalizationFactor(MarginalizationInfo* _marginalization_info):marginalization_info(_marginalization_info)
 {
     int cnt = 0;
+    //^ 遍历marginalization_info中的所有global parameter的size，
+    //^ 使用mutable_parameter_block_sizes()存入CostFunction的parameter_block_sizes_中
     for (auto it : marginalization_info->keep_block_size)
     {
         mutable_parameter_block_sizes()->push_back(it);
         cnt += it;
     }
     //printf("residual size: %d, %d\n", cnt, n);
+    //^ 设置残差(residual)的维度大小
     set_num_residuals(marginalization_info->n);
 };
 
+//^ !!!Important!!! 重载Evaluate纯虚函数，CostFunction实际功能
 bool MarginalizationFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
     //printf("internal addr,%d, %d\n", (int)parameter_block_sizes().size(), num_residuals());
@@ -354,31 +358,43 @@ bool MarginalizationFactor::Evaluate(double const *const *parameters, double *re
     //printf("jacobian %x\n", reinterpret_cast<long>(jacobians));
     //printf("residual %x\n", reinterpret_cast<long>(residuals));
     //}
-    int n = marginalization_info->n;
-    int m = marginalization_info->m;
-    Eigen::VectorXd dx(n);
+    int n = marginalization_info->n; //^ 边缘化之后保留的优化参数个数
+    int m = marginalization_info->m; //^ 边缘化之后舍弃的优化参数个数
+    Eigen::VectorXd dx(n);           //^ 当前优化参数向量和边缘化之后保留的优化参数向量的差值
+
+    //^ 遍历边缘化之后保留的优化参数size大小 
     for (int i = 0; i < static_cast<int>(marginalization_info->keep_block_size.size()); i++)
     {
+        //^ size为边缘化之后保留的第i个优化参数块的维度
         int size = marginalization_info->keep_block_size[i];
+        //^ idx为为边缘化之后保留的第i个优化参数块指针在整个参数块中的index
         int idx = marginalization_info->keep_block_idx[i] - m;
+        //^ x是当前优化过程中，边缘化之后保留的第i个优化参数块的取值
         Eigen::VectorXd x = Eigen::Map<const Eigen::VectorXd>(parameters[i], size);
+        //^ x0是边缘化刚完成时，保留的第i个优化参数块的取值
         Eigen::VectorXd x0 = Eigen::Map<const Eigen::VectorXd>(marginalization_info->keep_block_data[i], size);
+        //^ 通过x和x0，计算第i个优化参数块在dx中对应的值
         if (size != 7)
-            dx.segment(idx, size) = x - x0;
+            dx.segment(idx, size) = x - x0; // Block containing "size" elements, starting at position idx
         else
-        {
+        {   
+            //^ 参数中quaternion使用LocalParameterization
             dx.segment<3>(idx + 0) = x.head<3>() - x0.head<3>();
             dx.segment<3>(idx + 3) = 2.0 * Utility::positify(Eigen::Quaterniond(x0(6), x0(3), x0(4), x0(5)).inverse() * Eigen::Quaterniond(x(6), x(3), x(4), x(5))).vec();
+            //^ 确保quaternion的w为正
             if (!((Eigen::Quaterniond(x0(6), x0(3), x0(4), x0(5)).inverse() * Eigen::Quaterniond(x(6), x(3), x(4), x(5))).w() >= 0))
             {
                 dx.segment<3>(idx + 3) = 2.0 * -Utility::positify(Eigen::Quaterniond(x0(6), x0(3), x0(4), x0(5)).inverse() * Eigen::Quaterniond(x(6), x(3), x(4), x(5))).vec();
             }
         }
     }
+    //^ 使用固定边缘化后的残差对保留优化参数的雅可比矩阵linearized_jacobians
+    //^ 和当前优化参数与边缘化时的优化参数差值dx
+    //^ 修正当前的残差值
     Eigen::Map<Eigen::VectorXd>(residuals, n) = marginalization_info->linearized_residuals + marginalization_info->linearized_jacobians * dx;
+    //^ 修正雅可比的值，使用边缘化时计算的雅可比值
     if (jacobians)
     {
-
         for (int i = 0; i < static_cast<int>(marginalization_info->keep_block_size.size()); i++)
         {
             if (jacobians[i])

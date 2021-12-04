@@ -26,6 +26,9 @@ bool PoseLocalParameterization::Plus(const double *x, const double *delta, doubl
 
     return true;
 }
+//^ see https://www.cnblogs.com/glxin/p/11990551.html nad
+//^ https://fzheng.me/2018/01/23/ba-demo-ceres/ for reference
+//^ but still think this jacobian is approximation   
 bool PoseLocalParameterization::ComputeJacobian(const double *x, double *jacobian) const
 {
     Eigen::Map<Eigen::Matrix<double, 7, 6, Eigen::RowMajor>> j(jacobian);

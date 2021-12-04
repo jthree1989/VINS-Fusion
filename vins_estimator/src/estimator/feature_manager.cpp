@@ -113,7 +113,6 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count,
         || new_feature_num > 0.5 * last_track_num)  //^ 当前帧新观测到的feature个数大于track到的feature个数的一半
         return true;
     //^ 不是keyframe
-    //^ 
     for (auto &it_per_id : feature)
     {
         //^ 计算当前所有feature在倒数第二一帧和倒数第三帧之间的视差和
@@ -342,9 +341,9 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
         // feature已经估计出depth
         if (it_per_id.estimated_depth > 0)
             continue;
+        //^ 双目观测到特征点，进行双目三角化    
         if(STEREO && it_per_id.feature_per_frame[0].is_stereo)
         {
-            //^ 双目观测到特征点，进行双目三角化
             int imu_i = it_per_id.start_frame;
             //^ 计算第一次观测到feature时，左目在世界坐标系下的位置
             Eigen::Matrix<double, 3, 4> leftPose;
@@ -370,7 +369,8 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
             //cout << "point1 " << point1.transpose() << endl;
             //^ 三角化世界坐标系下的3d point位置
             triangulatePoint(leftPose, rightPose, point0, point1, point3d);
-            Eigen::Vector3d localPoint; //^ 左目下的3d位置
+            //^ 转化为左目下的3d位置
+            Eigen::Vector3d localPoint; 
             localPoint = leftPose.leftCols<3>() * point3d + leftPose.rightCols<1>();
             double depth = localPoint.z();
             if (depth > 0)
@@ -384,23 +384,25 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
             */
             continue;
         }
+        //^ 单目多次观测，三角化(i.e. !STEREO || !it_per_id.feature_per_frame[0].is_stereo)
         else if(it_per_id.feature_per_frame.size() > 1)
         {
-            //^ 单目多次观测，三角化
+            //^ 第一次看到该feature的IMU位姿作为leftPose
             int imu_i = it_per_id.start_frame;
             Eigen::Matrix<double, 3, 4> leftPose;
             Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];
             Eigen::Matrix3d R0 = Rs[imu_i] * ric[0];
             leftPose.leftCols<3>() = R0.transpose();
             leftPose.rightCols<1>() = -R0.transpose() * t0;
-
+            //^ 第二次看到该feature的IMU位姿作为rightPose
             imu_i++;
             Eigen::Matrix<double, 3, 4> rightPose;
             Eigen::Vector3d t1 = Ps[imu_i] + Rs[imu_i] * tic[0];
             Eigen::Matrix3d R1 = Rs[imu_i] * ric[0];
             rightPose.leftCols<3>() = R1.transpose();
             rightPose.rightCols<1>() = -R1.transpose() * t1;
-
+            //^ 三角化计算up-to-scale的深度值
+            // TODO 选取连续追踪的两帧三角化似乎不是一个好的选择
             Eigen::Vector2d point0, point1;
             Eigen::Vector3d point3d;
             point0 = it_per_id.feature_per_frame[0].point.head(2);
@@ -420,9 +422,13 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
             */
             continue;
         }
+
         it_per_id.used_num = it_per_id.feature_per_frame.size();
         if (it_per_id.used_num < 4)
             continue;
+        // TODO It seems that it never come into lines below...
+        ROS_WARN("STEREO: %d, is_stereo: %d, it_per_id.feature_per_frame.size(): %ld",
+        STEREO, it_per_id.feature_per_frame[0].is_stereo, it_per_id.feature_per_frame.size());
 
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
 

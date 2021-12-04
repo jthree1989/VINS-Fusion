@@ -20,7 +20,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     b.setZero();
     map<double, ImageFrame>::iterator frame_i;
     map<double, ImageFrame>::iterator frame_j;
-    //^ See Vins-Mono paper formula(15), construct a linear equation A * delta_bg = b
+    //^ See Vins-Mono paper formula(7), construct a linear equation A * delta_bg = b
     //! A = [J01^T, ... , Jij^T, ... , Jn-1n^T]^T
     //! b = [b01^T, ... , bij^T, ... , Bn-1n^T]^T
     //^ Using A^T * A * delta_bg = A^T * b to solve this equation

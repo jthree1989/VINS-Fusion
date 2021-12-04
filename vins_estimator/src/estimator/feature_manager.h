@@ -51,11 +51,11 @@ class FeaturePerFrame
         velocityRight.y() = _point(6); 
         is_stereo = true;
     }
-    double cur_td;
-    Vector3d point, pointRight;
-    Vector2d uv, uvRight;
-    Vector2d velocity, velocityRight;
-    bool is_stereo;
+    double cur_td;                        //^ IMU和图像时间差
+    Vector3d point, pointRight;           //^ feature在左目和右目归一化平面上的3d坐标, 如(px, py, 1.0)格式
+    Vector2d uv, uvRight;                 //^ feature在左目和右目像素平面上的2d坐标
+    Vector2d velocity, velocityRight;     //^ feature在左目和右目归一化平面上的速度
+    bool is_stereo;                       //^ feature在左目和右目像素平面上是否都有2d投影
 };
 
 class FeaturePerId
@@ -63,7 +63,8 @@ class FeaturePerId
   public:
     const int feature_id;
     int start_frame;
-    vector<FeaturePerFrame> feature_per_frame;
+    //^ 从start_frame开始，该feature连续跟踪在每一帧里的2D和3D位置
+    vector<FeaturePerFrame> feature_per_frame; 
     int used_num;
     double estimated_depth;
     int solve_flag; // 0 haven't solve yet; 1 solve succ; 2 solve fail;

@@ -40,6 +40,7 @@ ProjectionTwoFrameOneCamFactor::ProjectionTwoFrameOneCamFactor(const Eigen::Vect
 #endif
 };
 
+//^ residual: 2, (Pi/Qi):7, (Pj/Qj):7, inv_dep_i:1, td:1
 bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
     TicToc tic_toc;

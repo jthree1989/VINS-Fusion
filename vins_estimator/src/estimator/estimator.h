@@ -118,7 +118,7 @@ class Estimator
     Matrix3d        Rs[(WINDOW_SIZE + 1)];    //^ 世界坐标系下IMU旋转 Rwb
     Vector3d        Bas[(WINDOW_SIZE + 1)];
     Vector3d        Bgs[(WINDOW_SIZE + 1)];
-    double td;
+    double td;                                //^ Time offset: time_imu = time_camera + td;
 
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
@@ -161,8 +161,8 @@ class Estimator
 
     MarginalizationInfo *last_marginalization_info;
     vector<double *> last_marginalization_parameter_blocks;
-
-    map<double, ImageFrame> all_image_frame;
+    
+    map<double, ImageFrame> all_image_frame; // store all the features from images
     IntegrationBase *tmp_pre_integration;
 
     Eigen::Vector3d initP;

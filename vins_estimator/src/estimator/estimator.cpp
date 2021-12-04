@@ -398,6 +398,7 @@ void Estimator::processImage(
   ImageFrame imageframe(image, header);
   imageframe.pre_integration = tmp_pre_integration;
   all_image_frame.insert(make_pair(header, imageframe));
+  //^ acc_0和gyr_0是当前图像之前最近一个IMU数据
   tmp_pre_integration =
       new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
 
@@ -423,6 +424,7 @@ void Estimator::processImage(
     // monocular + IMU initilization
     //^ 单目VIO初始化
     if (!STEREO && USE_IMU) {
+      //^ 达到窗口大小才开始初始化
       if (frame_count == WINDOW_SIZE) {
         bool result = false;
         if (ESTIMATE_EXTRINSIC != 2 && (header - initial_timestamp) > 0.1) {
@@ -458,7 +460,7 @@ void Estimator::processImage(
           frame_it->second.T = Ps[i];
           i++;
         }
-        //^ 优化IMU的gyro bias
+        //^ 优化IMU的gyro bias，通常修正Bgs之前，Bgs通常是标定值或者设为零
         solveGyroscopeBias(all_image_frame, Bgs);
         //^ 使用优化过的gyro bias重新预计分
         for (int i = 0; i <= WINDOW_SIZE; i++) {
@@ -490,6 +492,7 @@ void Estimator::processImage(
     }
 
     if (frame_count < WINDOW_SIZE) {
+      //^ 下一帧预积分在上一帧预积分的基础上进行
       frame_count++;
       int prev_frame = frame_count - 1;
       Ps[frame_count] = Ps[prev_frame];
@@ -925,27 +928,36 @@ bool Estimator::failureDetection() {
 
 void Estimator::optimization() {
   TicToc t_whole, t_prepare;
+  //^ 1. Convert Eigen type to raw array for ceres
   vector2double();
-
+  //^ 2. 构建优化问题
   ceres::Problem problem;
+  //^ 2.1 选择并创建需要的LossFunction
   ceres::LossFunction *loss_function;
   // loss_function = NULL;
   loss_function = new ceres::HuberLoss(1.0);
   // loss_function = new ceres::CauchyLoss(1.0 / FOCAL_LENGTH);
   // ceres::LossFunction* loss_function = new ceres::HuberLoss(1.0);
+  //^ 2.2 为优化问题添加一些已知的待优化的参数块, 显式添加以下这些参数块的原因：
+  //^ 1) 它们是LocalParameterization表示的;
+  //^ 2) 需要对它们进行SetParameterBlockConstant设置
   for (int i = 0; i < frame_count + 1; i++) {
+    //^ 2.2.1 添加滑窗内所有位姿作为优化参数，并使用LocalParameterization表示
     ceres::LocalParameterization *local_parameterization =
         new PoseLocalParameterization();
     problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);
+    //^ 2.2.2 如果使用IMU，添加滑窗内所有v/ba/ba作为优化参数
     if (USE_IMU) problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);
   }
+  //^ 2.2.3 如果不使用IMU，固定滑窗内第一帧位姿
   if (!USE_IMU) problem.SetParameterBlockConstant(para_Pose[0]);
-
+  //^ 2.2.4 添加各相机到IMU的外参作为优化参数，并使用LocalParameterization表示
   for (int i = 0; i < NUM_OF_CAM; i++) {
     ceres::LocalParameterization *local_parameterization =
         new PoseLocalParameterization();
     problem.AddParameterBlock(para_Ex_Pose[i], SIZE_POSE,
                               local_parameterization);
+    // 判断估计还是固定相机外参
     if ((ESTIMATE_EXTRINSIC && frame_count == WINDOW_SIZE &&
          Vs[0].norm() > 0.2) ||
         openExEstimation) {
@@ -956,77 +968,135 @@ void Estimator::optimization() {
       problem.SetParameterBlockConstant(para_Ex_Pose[i]);
     }
   }
+  //^ 2.2.5 添加相机和IMUd的时间差作为优化参数
   problem.AddParameterBlock(para_Td[0], 1);
-
+  // 判断估计还是固定IMU和相机时间差
   if (!ESTIMATE_TD || Vs[0].norm() < 0.2)
     problem.SetParameterBlockConstant(para_Td[0]);
-
+  
+  //^ 2.3 为优化问题添加所有参与优化的残差项(包括CostFunction和相关联的优化参数块)
+  //^ 2.3.1 构建边缘化相关的残差项
   if (last_marginalization_info && last_marginalization_info->valid) {
-    // construct new marginlization_factor
+    // see https://zhehangt.github.io/2020/03/12/SLAM/VINS/VINSMarginalization/ for detail
+    // 定义边缘化CostFunction
     MarginalizationFactor *marginalization_factor =
         new MarginalizationFactor(last_marginalization_info);
-    problem.AddResidualBlock(marginalization_factor, NULL,
-                             last_marginalization_parameter_blocks);
+    // clang-format off
+    // 通过边缘化CostFunction和待优化参数块，定义边缘化残差并添加到problem
+    problem.AddResidualBlock(marginalization_factor,                  // 边缘化相关的CostFunction 
+                             NULL,                                    // 不考虑使用LossFunction，出现外点的概率很小
+                             last_marginalization_parameter_blocks);  // 关联参数块：边缘化需要保留的优化参数块
+    // clang-format on
   }
+
+  //^ 2.3.2 构建IMU预积分相关的残差项
   if (USE_IMU) {
     for (int i = 0; i < frame_count; i++) {
       int j = i + 1;
+      // 预积分时间大于10s，跳过
       if (pre_integrations[j]->sum_dt > 10.0) continue;
+      // 定义IMU预积分相关的CostFunction
       IMUFactor *imu_factor = new IMUFactor(pre_integrations[j]);
-      problem.AddResidualBlock(imu_factor, NULL, para_Pose[i],
-                               para_SpeedBias[i], para_Pose[j],
-                               para_SpeedBias[j]);
+      // clang-format off
+      // 通过预积分CostFunction和待优化参数块，定义预积分残差项并添加到problem
+      problem.AddResidualBlock(imu_factor,                            // IMU预积分相关的CostFunction 
+                               NULL,                                  // 不考虑使用LossFunction, 预积分出现外点的概率很小
+                               para_Pose[i],                          // 关联参数块1：i时刻世界坐标系下IMU位姿Pwi和Qwi
+                               para_SpeedBias[i],                     // 关联参数块2：i时刻世界坐标系下IMU速度Vwi和IMU bias(Bai/Bgi)
+                               para_Pose[j],                          // 关联参数块3：j时刻世界坐标系下IMU位姿Pwj和Qwj                         
+                               para_SpeedBias[j]);                    // 关联参数块4：j时刻世界坐标系下IMU速度Vwj和bias(Baj/Bgj)                    
+      // clang-format on                         
     }
   }
 
+  //^ 2.3.3 构建视觉相关的残差项
   int f_m_cnt = 0;
   int feature_index = -1;
   for (auto &it_per_id : f_manager.feature) {
+    // 参与构建残差的feature，需要被连续跟踪至少四帧
     it_per_id.used_num = it_per_id.feature_per_frame.size();
     if (it_per_id.used_num < 4) continue;
 
     ++feature_index;
-
+    // imu_i: 跟踪起始帧, pts_i:跟踪起始帧时，feature在左目归一化平面上的3d坐标
     int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
-
     Vector3d pts_i = it_per_id.feature_per_frame[0].point;
-
+    // ROS_INFO_STREAM("pts_i: " << pts_i.transpose());
+    // 遍历起始帧之后，连续追踪的每一帧像素平面2d坐标和归一化平面上3d坐标
     for (auto &it_per_frame : it_per_id.feature_per_frame) {
       imu_j++;
       if (imu_i != imu_j) {
-        Vector3d pts_j = it_per_frame.point;
+        Vector3d pts_j = it_per_frame.point; //  pts_j: j帧的左目归一化平面上的3d坐标
+        // clang-format off
+        //^ 2.3.3.1 构建双视觉帧单目重投影的残差项
+        // 定义feature在两不同时刻在单目上的重投影CostFunction
         ProjectionTwoFrameOneCamFactor *f_td =
             new ProjectionTwoFrameOneCamFactor(
-                pts_i, pts_j, it_per_id.feature_per_frame[0].velocity,
-                it_per_frame.velocity, it_per_id.feature_per_frame[0].cur_td,
-                it_per_frame.cur_td);
-        problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i],
-                                 para_Pose[imu_j], para_Ex_Pose[0],
-                                 para_Feature[feature_index], para_Td[0]);
+                pts_i,                                                 // 跟踪起始帧i时，feature在左目归一化平面上的3d坐标
+                pts_j,                                                 // j帧时，feature在左目归一化平面上的3d坐标
+                it_per_id.feature_per_frame[0].velocity,               // 跟踪起始帧i时，feature在左目归一化平面上的速度
+                it_per_frame.velocity,                                 // j帧时，feature在左目归一化平面上的速度
+                it_per_id.feature_per_frame[0].cur_td,                 // 跟踪起始帧i时，IMU和图像的时间差
+                it_per_frame.cur_td);                                  // j帧时，IMU和图像的时间差
+
+        problem.AddResidualBlock(f_td,                                 // 双视觉帧单目重投影的CostFunction
+                                 loss_function,                        // 使用LossFunction，视觉重投影容易出现外点，需要抑制 
+                                 para_Pose[imu_i],                     // 关联参数1： i时刻世界坐标系下IMU位姿Pwi和Qwi
+                                 para_Pose[imu_j],                     // 关联参数2： j时刻世界坐标系下IMU位姿Pwj和Qwj 
+                                 para_Ex_Pose[0],                      // 关联参数3： 左相机(id == 0)在IMU坐标系下的外参t_ic0
+                                 para_Feature[feature_index],          // 关联参数4： feature在跟踪起始帧i时， 左目相机下的逆深度
+                                 para_Td[0]);                          // 关联参数5： IMU和图像的时间差
+        // clang-formt on                         
       }
 
       if (STEREO && it_per_frame.is_stereo) {
-        Vector3d pts_j_right = it_per_frame.pointRight;
+        Vector3d pts_j_right = it_per_frame.pointRight; // pts_j_right: j帧的右目归一化平面上的3d坐标
         if (imu_i != imu_j) {
+          // clang-format off
+          //^ 2.3.3.2 构建双视觉帧双目重投影的残差项
+          // 定义feature在不同时刻在不同相机上的重投影CostFunction
           ProjectionTwoFrameTwoCamFactor *f =
               new ProjectionTwoFrameTwoCamFactor(
-                  pts_i, pts_j_right, it_per_id.feature_per_frame[0].velocity,
-                  it_per_frame.velocityRight,
-                  it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
-          problem.AddResidualBlock(f, loss_function, para_Pose[imu_i],
-                                   para_Pose[imu_j], para_Ex_Pose[0],
-                                   para_Ex_Pose[1], para_Feature[feature_index],
-                                   para_Td[0]);
+                  pts_i,                                                // 跟踪起始帧i时，feature在左目归一化平面上的3d坐标 
+                  pts_j_right,                                          // j帧时，feature在右目归一化平面上的3d坐标 
+                  it_per_id.feature_per_frame[0].velocity,              // 跟踪起始帧i时，feature在左目归一化平面上的速度
+                  it_per_frame.velocityRight,                           // j帧时，feature在右目归一化平面上的速度 
+                  it_per_id.feature_per_frame[0].cur_td,                // 跟踪起始帧i时，IMU和图像的时间差
+                  it_per_frame.cur_td);                                 // j帧时，IMU和图像的时间差
+          
+          problem.AddResidualBlock(f,                                   // 双视觉帧双目重投影的CostFunction
+                                   loss_function,                       // 使用LossFunction，视觉重投影容易出现外点，需要抑制 
+                                   para_Pose[imu_i],                    // 关联参数1： i时刻世界坐标系下IMU位姿Pwi和Qwi
+                                   para_Pose[imu_j],                    // 关联参数2： j时刻世界坐标系下IMU位姿Pwj和Qwj  
+                                   para_Ex_Pose[0],                     // 关联参数3： 左相机(id == 0)在IMU坐标系下的外参t_ic0
+                                   para_Ex_Pose[1],                     // 关联参数4： 右相机(id == 1)在IMU坐标系下的外参t_ic1
+                                   para_Feature[feature_index],         // 关联参数5： feature在跟踪起始帧i时， 左目相机下的逆深度
+                                   para_Td[0]);                         // 关联参数6： IMU和图像的时间差
         } else {
+          //^ 2.3.3.3 构建单视觉帧双目重投影的残差项
+          // 定义feature在同一时刻在不同相机上的重投影CostFunction
+          // TODO no need to add it_per_id.feature_per_frame[0].cur_td and it_per_frame.cur_td together, they are the same one
           ProjectionOneFrameTwoCamFactor *f =
               new ProjectionOneFrameTwoCamFactor(
-                  pts_i, pts_j_right, it_per_id.feature_per_frame[0].velocity,
-                  it_per_frame.velocityRight,
-                  it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
-          problem.AddResidualBlock(f, loss_function, para_Ex_Pose[0],
-                                   para_Ex_Pose[1], para_Feature[feature_index],
-                                   para_Td[0]);
+                  pts_i,                                                // 跟踪起始帧i时，feature在左目归一化平面上的3d坐标                              
+                  pts_j_right,                                          // j(此时j == i)帧时，feature在右目归一化平面上的3d坐标 
+                  it_per_id.feature_per_frame[0].velocity,              // 跟踪起始帧i时，feature在左目归一化平面上的速度
+                  it_per_frame.velocityRight,                           // j(此时j == i)帧时，feature在右目归一化平面上的速度 
+                  it_per_id.feature_per_frame[0].cur_td,                // 跟踪起始帧i时，IMU和图像的时间差 
+                  it_per_frame.cur_td);                                 // j(此时j == i)帧时，IMU和图像的时间差
+          
+          // Check if it_per_id.feature_per_frame[0].cur_td and it_per_frame.cur_td is same
+          // ROS_INFO("&feature_per_frame[0].cur_td: %p, &it_per_frame.cur_td: %p", 
+          //          (void*)&it_per_id.feature_per_frame[0].cur_td, (void*)&it_per_frame.cur_td);        
+          
+          problem.AddResidualBlock(f,                                    // 单视觉帧双目重投影的CostFunction                                
+                                   loss_function,                        // 使用LossFunction，视觉重投影容易出现外点，需要抑制 
+                                   para_Ex_Pose[0],                      // 关联参数1： 左相机(id == 0)在IMU坐标系下的外参t_ic0
+                                   para_Ex_Pose[1],                      // 关联参数2： 右相机(id == 1)在IMU坐标系下的外参t_ic1
+                                   para_Feature[feature_index],          // 关联参数3： feature在跟踪起始帧i时， 左目相机下的逆深度
+                                   para_Td[0]);                          // 关联参数4： IMU和图像的时间差
         }
+        // clang-format on
       }
       f_m_cnt++;
     }

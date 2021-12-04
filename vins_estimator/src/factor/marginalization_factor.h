@@ -65,17 +65,24 @@ class MarginalizationInfo
     std::vector<double *> getParameterBlocks(std::unordered_map<long, double *> &addr_shift);
 
     std::vector<ResidualBlockInfo *> factors;
+    //^ m是需要被边缘化的参数个数
+    //^ n是边缘化后剩余的参数化个数
     int m, n;
     std::unordered_map<long, int> parameter_block_size; //global size
     int sum_block_size;
     std::unordered_map<long, int> parameter_block_idx; //local size
     std::unordered_map<long, double *> parameter_block_data;
 
+    //^ Global size of each parameter block
     std::vector<int> keep_block_size; //global size
+    //^ Local size of each parameter block
     std::vector<int> keep_block_idx;  //local size
+    //^ Head pointer points to each global parameter block
     std::vector<double *> keep_block_data;
 
+    //^ 边缘化后的雅可比矩阵 
     Eigen::MatrixXd linearized_jacobians;
+    //^ 边缘化后的残差矩阵
     Eigen::VectorXd linearized_residuals;
     const double eps = 1e-8;
     bool valid;
